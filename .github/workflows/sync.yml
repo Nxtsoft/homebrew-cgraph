@@ -1,0 +1,43 @@
+name: sync
+
+# Copy Formula/cgraph.rb from the CGraph repository, where
+# scripts/pin_launcher_release.py renders it for each release, so a release
+# reaches `brew install` without a hand-made commit here.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the formula from CGraph main
+        run: curl -fsSL https://raw.githubusercontent.com/Nxtsoft/CGraph/main/packaging/homebrew/cgraph.rb -o Formula/cgraph.rb
+      - name: Commit when it changed
+        id: commit
+        run: |
+          if git diff --quiet; then
+            echo "Formula/cgraph.rb is current"
+            exit 0
+          fi
+          version=$(sed -n 's/^  version "\(.*\)"$/\1/p' Formula/cgraph.rb)
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "cgraph ${version}"
+          git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Put brew on PATH
+        if: steps.commit.outputs.changed == 'true'
+        run: echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+      - name: Install the new formula and run its test
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install nxtsoft/cgraph/cgraph
+          brew test nxtsoft/cgraph/cgraph
